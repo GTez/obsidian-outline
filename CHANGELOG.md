@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] – 2026-05-16
+
+### Added — Bidirectional sync
+
+The plugin can now sync in both directions between Obsidian and Outline, not
+just push. Highlights:
+
+- **Sync mappings.** Each mapping pairs an Outline document or collection
+  subtree with a vault folder. Multiple mappings supported.
+- **Folder-note hierarchy.** Outline documents with children become folders
+  containing a same-named markdown file, matching the [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes)
+  convention. Leaves stay as plain files.
+- **Conflict-safe.** When both sides change between syncs, the remote
+  version is written to `<file>.outline-conflict-<timestamp>.md`; the
+  local file is marked `outline_sync_status: conflict` and skipped until
+  the conflict file is deleted. Configurable to `prefer-local` /
+  `prefer-remote` for power users.
+- **Mobile support.** All HTTP routes through `requestUrl`; manifest now
+  declares `isDesktopOnly: false`. Tested on iOS and Android.
+- **Rate-limited.** Rolling 1-hour window keeps us safely under Outline's
+  default 1000 req/hr limit. Configurable headroom buffer.
+- **Title / move detection.** Title changes in Outline rename the local
+  file (and folder, for folder-notes), preserving backlinks via
+  `fileManager.renameFile`. Docs moved within a mapped subtree are
+  relocated; docs moved out are marked orphaned, not deleted.
+- **Local index.** `.obsidian/plugins/obsidian-outline-sync/index.json`
+  caches the outline-id → vault-path map; rebuildable from frontmatter.
+
+### Commands
+
+- Sync all mappings
+- Sync current note
+- Show sync status
+- Force pull (overwrite local) / Force push (overwrite remote)
+- Rebuild local index from frontmatter
+- Open current note in Outline
+
+The legacy one-way push commands ("Push active file to Outline",
+"Push folder to Outline") are preserved.
+
+### Internals
+
+- New `src/bisync/` module: engine, reconciler, walker, hierarchy mapper,
+  conflict handler, hash, local index, vault IO abstraction.
+- `OutlineApiBase` extended with `listDocuments`, `getCollectionDocumentTree`,
+  `getCollection`, `deleteDocument`.
+- `customInstance` now supports a pluggable `RateLimiter` and exponential
+  5xx backoff in addition to the existing 429 retry path.
+- Frontmatter schema extended: `outline_revision`, `outline_synced_hash`,
+  `outline_parent_id`, `outline_url`, `outline_sync_status`,
+  `outline_mapping_id`, `outline_title`, `conflict_for`.
+- 171 unit + integration tests covering URL parsing, sanitization, the
+  reconciliation state machine, the conflict flow, the engine glue.
+
 ## [1.8.0] – 2026-03-16
 
 ### Added / Changed – Major refactor by [@matthias-feddersen](https://github.com/matthias-feddersen)

@@ -1,26 +1,41 @@
 import { configure, type Transport } from './custom-instance';
+import { RateLimiter } from './rate-limiter';
 import {
   authInfo,
+  collectionsInfo,
   collectionsList,
+  collectionsDocuments,
   documentsInfo,
+  documentsList,
   documentsCreate,
   documentsUpdate,
+  documentsDelete,
   documentsSearch,
   attachmentsCreate,
 } from './generated-client/outlineAPI';
-import type { Collection, Document, AttachmentsCreate200Data } from './generated-client/outlineAPI';
+import type {
+  Collection,
+  Document,
+  AttachmentsCreate200Data,
+  NavigationNode,
+} from './generated-client/outlineAPI';
 import type { IOutlineApi } from './types';
 
-export type { Collection, Document, AttachmentsCreate200Data };
+export type { Collection, Document, AttachmentsCreate200Data, NavigationNode };
 
 export abstract class OutlineApiBase implements IOutlineApi {
   protected baseUrl: string;
   protected apiKey: string;
 
-  constructor(baseUrl: string, apiKey: string, transport?: Transport) {
+  constructor(
+    baseUrl: string,
+    apiKey: string,
+    transport?: Transport,
+    rateLimiter?: RateLimiter | null
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKey = apiKey;
-    configure({ baseUrl: this.baseUrl, apiKey: this.apiKey, transport });
+    configure({ baseUrl: this.baseUrl, apiKey: this.apiKey, transport, rateLimiter });
   }
 
   async validateAuth(): Promise<string | null> {
@@ -128,4 +143,60 @@ export abstract class OutlineApiBase implements IOutlineApi {
     fileData: ArrayBuffer,
     contentType: string
   ): Promise<boolean>;
+
+  // ─── Bidirectional sync ────────────────────────────────────────────────
+
+  async listDocuments(params: {
+    parentDocumentId?: string;
+    collectionId?: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<Document[] | null> {
+    try {
+      const body: Parameters<typeof documentsList>[0] = {
+        offset: params.offset ?? 0,
+        limit: params.limit ?? 100,
+      };
+      if (params.parentDocumentId) body.parentDocumentId = params.parentDocumentId;
+      if (params.collectionId) body.collectionId = params.collectionId;
+      const res = await documentsList(body);
+      if (res.status !== 200) return null;
+      return res.data.data ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  async getCollectionDocumentTree(collectionId: string): Promise<NavigationNode[] | null> {
+    try {
+      const res = await collectionsDocuments({ id: collectionId });
+      if (res.status !== 200) return null;
+      const data = res.data.data;
+      // The schema is loose about array vs single node; normalize to array.
+      if (Array.isArray(data)) return data as NavigationNode[];
+      if (data && typeof data === 'object') return [data as NavigationNode];
+      return [];
+    } catch {
+      return null;
+    }
+  }
+
+  async getCollection(id: string): Promise<Collection | null> {
+    try {
+      const res = await collectionsInfo({ id });
+      if (res.status !== 200) return null;
+      return res.data.data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteDocument(id: string): Promise<boolean> {
+    try {
+      const res = await documentsDelete({ id });
+      return res.status === 200;
+    } catch {
+      return false;
+    }
+  }
 }

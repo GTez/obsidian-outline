@@ -4,7 +4,7 @@ export {
   stripFrontmatter,
   getOutlineMeta,
 } from './frontmatter';
-export type { OutlineFrontmatter } from './frontmatter';
+export type { OutlineFrontmatter, OutlineSyncStatus } from './frontmatter';
 
 export { CalloutTransformer, convertCallouts } from './callouts';
 

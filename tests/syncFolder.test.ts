@@ -54,6 +54,18 @@ function makeFakeApi(): IOutlineApi & {
     async uploadAttachmentToStorage() {
       return false;
     },
+    async listDocuments() {
+      return [];
+    },
+    async getCollectionDocumentTree() {
+      return [];
+    },
+    async getCollection() {
+      return null;
+    },
+    async deleteDocument() {
+      return true;
+    },
   };
   return api;
 }

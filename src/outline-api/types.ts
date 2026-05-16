@@ -10,9 +10,10 @@ import type {
   Document,
   Attachment,
   AttachmentsCreate200Data,
+  NavigationNode,
 } from './generated-client/outlineAPI';
 
-export type { Collection, Document, Attachment, AttachmentsCreate200Data };
+export type { Collection, Document, Attachment, AttachmentsCreate200Data, NavigationNode };
 
 export interface IOutlineApi {
   /** Returns the authenticated user's name, or null on failure. */
@@ -49,4 +50,28 @@ export interface IOutlineApi {
     fileData: ArrayBuffer,
     contentType: string
   ): Promise<boolean>;
+
+  // ─── Bidirectional sync ────────────────────────────────────────────────
+  /**
+   * List documents matching a filter. Caller is responsible for paging.
+   * Returns null on hard failure; an empty array means "no more results".
+   */
+  listDocuments(params: {
+    parentDocumentId?: string;
+    collectionId?: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<Document[] | null>;
+
+  /** Fetch a collection's full document tree as a NavigationNode. */
+  getCollectionDocumentTree(collectionId: string): Promise<NavigationNode[] | null>;
+
+  /** Fetch collection metadata. */
+  getCollection(id: string): Promise<Collection | null>;
+
+  /**
+   * Delete a document. Used only when deletionsFrom*Propagate is enabled.
+   * Returns true on success.
+   */
+  deleteDocument(id: string): Promise<boolean>;
 }

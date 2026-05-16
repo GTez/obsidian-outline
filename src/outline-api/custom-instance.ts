@@ -7,6 +7,8 @@
  * Call `configure()` once before any API call.
  */
 
+import { RateLimiter } from './rate-limiter';
+
 export interface TransportResponse {
   status: number;
   headers: Headers;
@@ -30,11 +32,18 @@ const fetchTransport: Transport = async (url, init) => {
 let _baseUrl = '';
 let _apiKey = '';
 let _transport: Transport = fetchTransport;
+let _rateLimiter: RateLimiter | null = null;
 
-export function configure(opts: { baseUrl: string; apiKey: string; transport?: Transport }) {
+export function configure(opts: {
+  baseUrl: string;
+  apiKey: string;
+  transport?: Transport;
+  rateLimiter?: RateLimiter | null;
+}) {
   _baseUrl = opts.baseUrl.replace(/\/$/, '');
   _apiKey = opts.apiKey;
   if (opts.transport) _transport = opts.transport;
+  if (opts.rateLimiter !== undefined) _rateLimiter = opts.rateLimiter;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -66,6 +75,8 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
   }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (_rateLimiter) await _rateLimiter.acquire();
+
     const res = await _transport(fullUrl, {
       method: (init.method ?? 'POST') as string,
       headers,
@@ -76,6 +87,12 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
       const raw = parseInt(res.headers.get('retry-after') ?? '5', 10);
       const retryAfter = Math.min(isNaN(raw) ? 5 : raw, 60);
       await sleep(retryAfter * 1000);
+      continue;
+    }
+
+    if (res.status >= 500 && res.status < 600 && attempt < MAX_RETRIES - 1) {
+      // Exponential backoff: 1s, 2s, 4s.
+      await sleep(Math.min(60_000, 1000 * Math.pow(2, attempt)));
       continue;
     }
 
