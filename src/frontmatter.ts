@@ -48,4 +48,5 @@ export function applyFrontmatterUpdates(
   assign('outline_mapping_id');
   assign('outline_title');
   assign('conflict_for');
+  assign('outline_attachments');
 }

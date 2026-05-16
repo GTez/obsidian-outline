@@ -22,9 +22,12 @@ import type { OutlineFrontmatter } from '../pipeline';
 import type { ConflictBehavior, SyncMapping } from '../settings';
 import type { IOutlineApi } from '../outline-api/types';
 import {
+  parseAttachmentMap,
   processInboundAttachments,
   processOutboundImages,
+  serializeAttachmentMap,
   type AttachmentFetcher,
+  type AttachmentMap,
 } from './attachments';
 import { hasUnresolvedConflict, writeConflictFile } from './conflict';
 import { sha256 } from './hash';
@@ -79,6 +82,8 @@ export interface ReconcileOptions {
   apiKey?: string;
   /** Test seam — overrides the HTTP fetcher used to download attachments. */
   attachmentFetcher?: AttachmentFetcher;
+  /** Folder name (relative to each note) where pulled attachments are stored. */
+  attachmentFolderName?: string;
 }
 
 export interface ReconcileResult {
@@ -244,8 +249,16 @@ async function pushLocal(
   remote: OutlineNode
 ): Promise<void> {
   // Upload any image references the user added, replacing local refs with
-  // Outline URLs in the body we'll send.
-  const outboundBody = await rewriteForRemote(opts, plan.vaultPath, local.body, remote.id);
+  // Outline URLs in the body we'll send. The prior map (from frontmatter)
+  // lets us skip uploads when bytes haven't changed.
+  const priorMap = parseAttachmentMap(local.meta.outline_attachments);
+  const { body: outboundBody, map: nextMap } = await rewriteForRemote(
+    opts,
+    plan.vaultPath,
+    local.body,
+    remote.id,
+    priorMap
+  );
   const res = await pushUpdate(opts.api, {
     id: remote.id,
     title: remote.title,
@@ -266,10 +279,16 @@ async function pushLocal(
     outline_url: res.urlId
       ? `${opts.outlineUrl.replace(/\/$/, '')}/doc/${res.urlId}`
       : undefined,
+    outline_attachments: hasEntries(nextMap) ? serializeAttachmentMap(nextMap) : null,
   });
   opts.index.set(
     toIndexEntry(plan, { ...remote, revision: res.revision }, localHash, opts.mapping.id)
   );
+}
+
+function hasEntries(map: AttachmentMap): boolean {
+  for (const _ in map) return true;
+  return false;
 }
 
 async function pullRemoteOverLocal(
@@ -299,7 +318,14 @@ async function createRemoteFromLocal(
   });
   if (!initial) return;
   // Now upload any images and re-update if the body changed.
-  const outboundBody = await rewriteForRemote(opts, doc.path, doc.body, initial.outlineId);
+  const priorMap = parseAttachmentMap(doc.meta.outline_attachments);
+  const { body: outboundBody, map: nextMap } = await rewriteForRemote(
+    opts,
+    doc.path,
+    doc.body,
+    initial.outlineId,
+    priorMap
+  );
   if (outboundBody !== doc.body) {
     await pushUpdate(opts.api, {
       id: initial.outlineId,
@@ -321,6 +347,7 @@ async function createRemoteFromLocal(
     outline_url: initial.urlId
       ? `${opts.outlineUrl.replace(/\/$/, '')}/doc/${initial.urlId}`
       : undefined,
+    outline_attachments: hasEntries(nextMap) ? serializeAttachmentMap(nextMap) : null,
   });
 }
 
@@ -416,6 +443,7 @@ async function rewriteForLocal(
     notePath,
     body,
     fetcher: opts.attachmentFetcher,
+    attachmentsFolder: opts.attachmentFolderName,
   });
   return res.body;
 }
@@ -423,20 +451,23 @@ async function rewriteForLocal(
 /**
  * Process image references in a body about to be pushed to Outline.
  * Uploads each via the Outline API and rewrites the markdown to use the
- * returned Outline URLs.
+ * returned Outline URLs. Uses `priorMap` to skip re-uploading bytes that
+ * haven't changed since the last push.
  */
 async function rewriteForRemote(
   opts: ReconcileOptions,
   notePath: string,
   body: string,
-  documentId: string
-): Promise<string> {
+  documentId: string,
+  priorMap: AttachmentMap
+): Promise<{ body: string; map: AttachmentMap }> {
   const res = await processOutboundImages({
     vault: opts.vault,
     api: opts.api,
     notePath,
     body,
     documentId,
+    priorMap,
   });
-  return res.body;
+  return { body: res.body, map: res.map };
 }

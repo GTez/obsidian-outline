@@ -13,7 +13,7 @@ function bytesFor(s: string): ArrayBuffer {
 describe('processOutboundImages', () => {
   test('uploads each detected image and rewrites refs', async () => {
     const vault = new MemoryVault();
-    vault.seedBinary('Notes/_attachments/diagram.png', bytesFor('PNG_BYTES'), 'image/png');
+    vault.seedBinary('Notes/attachments/diagram.png', bytesFor('PNG_BYTES'), 'image/png');
     const api = new FakeApi();
     // Stub createAttachment to return a fake upload URL.
     const origCreate = api.createAttachment.bind(api);
@@ -25,7 +25,7 @@ describe('processOutboundImages', () => {
     void origCreate;
     api.uploadAttachmentToStorage = async () => true;
 
-    const body = 'See diagram:\n\n![](_attachments/diagram.png)\n';
+    const body = 'See diagram:\n\n![](attachments/diagram.png)\n';
     const res = await processOutboundImages({
       vault,
       api,
@@ -35,7 +35,111 @@ describe('processOutboundImages', () => {
     });
     expect(res.uploaded).toBe(1);
     expect(res.body).toContain('![diagram](https://outline.example.com/api/attachments.redirect?id=att-1)');
-    expect(res.body).not.toContain('_attachments/diagram.png');
+    expect(res.body).not.toContain('attachments/diagram.png');
+  });
+
+  test('reuses cached URL when bytes are unchanged (no upload)', async () => {
+    const vault = new MemoryVault();
+    const pngBytes = bytesFor('PNG_STABLE');
+    vault.seedBinary('Notes/attachments/diagram.png', pngBytes, 'image/png');
+    const api = new FakeApi();
+
+    let uploads = 0;
+    api.createAttachment = async () => {
+      uploads++;
+      return {
+        uploadUrl: 'https://o.example/api/files',
+        form: { key: 'k' },
+        attachment: { url: 'https://o.example/api/attachments.redirect?id=NEW' },
+      };
+    };
+    api.uploadAttachmentToStorage = async () => true;
+
+    const body = '![](attachments/diagram.png)';
+    // Compute the content hash exactly as the production code will.
+    const { sha256Bytes } = await import('../src/bisync/hash');
+    const h = await sha256Bytes(pngBytes);
+    const prior = {
+      'Notes/attachments/diagram.png': {
+        u: 'https://o.example/api/attachments.redirect?id=OLD',
+        h,
+      },
+    };
+    const res = await processOutboundImages({
+      vault,
+      api,
+      notePath: 'Notes/Doc.md',
+      body,
+      documentId: 'd1',
+      priorMap: prior,
+    });
+    expect(uploads).toBe(0);
+    expect(res.reused).toBe(1);
+    expect(res.body).toContain('?id=OLD'); // kept the cached URL
+    expect(res.map['Notes/attachments/diagram.png'].u).toContain('?id=OLD');
+  });
+
+  test('re-uploads when bytes change (hash mismatch)', async () => {
+    const vault = new MemoryVault();
+    vault.seedBinary('Notes/attachments/diagram.png', bytesFor('NEW_BYTES'), 'image/png');
+    const api = new FakeApi();
+    let uploads = 0;
+    api.createAttachment = async () => {
+      uploads++;
+      return {
+        uploadUrl: 'https://o.example/api/files',
+        form: { key: 'k' },
+        attachment: { url: 'https://o.example/api/attachments.redirect?id=FRESH' },
+      };
+    };
+    api.uploadAttachmentToStorage = async () => true;
+
+    const prior = {
+      'Notes/attachments/diagram.png': {
+        u: 'https://o.example/api/attachments.redirect?id=STALE',
+        h: 'wrong-hash',
+      },
+    };
+    const res = await processOutboundImages({
+      vault,
+      api,
+      notePath: 'Notes/Doc.md',
+      body: '![](attachments/diagram.png)',
+      documentId: 'd1',
+      priorMap: prior,
+    });
+    expect(uploads).toBe(1);
+    expect(res.uploaded).toBe(1);
+    expect(res.reused).toBe(0);
+    expect(res.body).toContain('?id=FRESH');
+  });
+
+  test('prunes map entries for images no longer referenced', async () => {
+    const vault = new MemoryVault();
+    vault.seedBinary('Notes/attachments/kept.png', bytesFor('KEEP'), 'image/png');
+    const api = new FakeApi();
+    api.createAttachment = async () => ({
+      uploadUrl: 'https://o.example/api/files',
+      form: { key: 'k' },
+      attachment: { url: 'https://o.example/api/attachments.redirect?id=KEPT' },
+    });
+    api.uploadAttachmentToStorage = async () => true;
+    const prior = {
+      'Notes/attachments/removed.png': {
+        u: 'https://o.example/api/attachments.redirect?id=DROP',
+        h: 'h',
+      },
+    };
+    const res = await processOutboundImages({
+      vault,
+      api,
+      notePath: 'Notes/Doc.md',
+      body: '![](attachments/kept.png)', // only references kept.png
+      documentId: 'd1',
+      priorMap: prior,
+    });
+    expect(Object.keys(res.map)).toEqual(['Notes/attachments/kept.png']);
+    expect(res.map['Notes/attachments/kept.png'].u).toContain('?id=KEPT');
   });
 
   test('inserts a placeholder when the image is missing', async () => {
@@ -71,9 +175,9 @@ describe('processInboundAttachments', () => {
       fetcher,
     });
     expect(res.downloaded).toBe(1);
-    expect(res.body).toContain('_attachments/');
-    expect(res.body).toMatch(/_attachments\/[^)\s]+\.jpg/);
-    expect(vault.list().some((p) => p.startsWith('Notes/_attachments/'))).toBe(true);
+    expect(res.body).toContain('attachments/');
+    expect(res.body).toMatch(/attachments\/[^)\s]+\.jpg/);
+    expect(vault.list().some((p) => p.startsWith('Notes/attachments/'))).toBe(true);
   });
 
   test('ignores URLs that are not Outline-hosted attachments', async () => {
@@ -110,7 +214,7 @@ describe('processInboundAttachments', () => {
     });
     expect(calls).toBe(1);
     expect(res.downloaded).toBe(2);
-    expect(res.body.match(/_attachments\//g)?.length).toBe(2);
+    expect(res.body.match(/attachments\//g)?.length).toBe(2);
   });
 
   test('leaves body untouched when no fetcher is provided', async () => {

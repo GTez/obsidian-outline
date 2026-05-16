@@ -28,6 +28,16 @@ export interface OutlineFrontmatter {
    * from sync (they are leaves of the resolution workflow, not docs).
    */
   conflict_for?: string;
+  /**
+   * JSON-stringified map of `localPath` → `{u: outlineUrl, h: contentHash}`.
+   * Lets the pusher skip re-uploading images whose bytes haven't changed,
+   * which would otherwise accumulate orphaned attachments in Outline.
+   *
+   * Stored as a string (not nested YAML) so the simple YAML parser in
+   * this module can round-trip it without growing nested-object support.
+   * Pass `null` to applyFrontmatterUpdates to delete the field outright.
+   */
+  outline_attachments?: string | null;
 }
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -86,6 +96,7 @@ export function getOutlineMeta(content: string): OutlineFrontmatter {
     outline_mapping_id: meta['outline_mapping_id'] as string | undefined,
     outline_title: meta['outline_title'] as string | undefined,
     conflict_for: meta['conflict_for'] as string | undefined,
+    outline_attachments: meta['outline_attachments'] as string | undefined,
   };
 }
 

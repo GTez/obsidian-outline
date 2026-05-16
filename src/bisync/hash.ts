@@ -22,6 +22,12 @@ export async function sha256(input: string): Promise<string> {
   return hex(new Uint8Array(digest));
 }
 
+/** SHA-256 of a binary blob — used to detect when a local image's bytes change. */
+export async function sha256Bytes(bytes: ArrayBuffer): Promise<string> {
+  const digest = await getSubtle().digest('SHA-256', bytes);
+  return hex(new Uint8Array(digest));
+}
+
 function hex(bytes: Uint8Array): string {
   let out = '';
   for (let i = 0; i < bytes.length; i++) {

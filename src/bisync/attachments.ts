@@ -20,9 +20,37 @@
 
 import { detectImages } from '../pipeline';
 import type { IOutlineApi } from '../outline-api/types';
+import { sha256Bytes } from './hash';
 import type { VaultIO } from './vault-io';
 
 // ─── Outbound (push) ───────────────────────────────────────────────────
+
+/**
+ * Per-note record of which local image refs map to which Outline
+ * attachment URLs, plus a content hash so we can re-upload only when the
+ * bytes actually change.
+ *
+ * The shape is intentionally terse (`u`, `h`) because it lives inside
+ * frontmatter (as a JSON-stringified value) and shorter keys keep the
+ * YAML readable.
+ */
+export type AttachmentMapEntry = { u: string; h: string };
+export type AttachmentMap = Record<string, AttachmentMapEntry>;
+
+export function parseAttachmentMap(serialized: string | null | undefined): AttachmentMap {
+  if (!serialized) return {};
+  try {
+    const parsed = JSON.parse(serialized);
+    if (parsed && typeof parsed === 'object') return parsed as AttachmentMap;
+  } catch {
+    // Fallthrough.
+  }
+  return {};
+}
+
+export function serializeAttachmentMap(map: AttachmentMap): string {
+  return JSON.stringify(map);
+}
 
 export interface ProcessOutboundOptions {
   vault: VaultIO;
@@ -31,11 +59,18 @@ export interface ProcessOutboundOptions {
   body: string;
   /** Outline doc id to associate uploads with. */
   documentId: string;
+  /** Map of previously-uploaded images. Hash check decides whether to re-upload. */
+  priorMap?: AttachmentMap;
 }
 
 export interface ProcessOutboundResult {
   body: string;
+  /** Map containing only entries for images still referenced in the body. */
+  map: AttachmentMap;
+  /** Images that triggered an actual upload this pass. */
   uploaded: number;
+  /** Images that hit the cache (no upload, just rewrite). */
+  reused: number;
   total: number;
 }
 
@@ -43,11 +78,14 @@ export async function processOutboundImages(
   opts: ProcessOutboundOptions
 ): Promise<ProcessOutboundResult> {
   const detected = detectImages(opts.body);
+  const prior = opts.priorMap ?? {};
+  const next: AttachmentMap = {};
   if (detected.images.length === 0) {
-    return { body: opts.body, uploaded: 0, total: 0 };
+    return { body: opts.body, map: next, uploaded: 0, reused: 0, total: 0 };
   }
   let body = opts.body;
   let uploaded = 0;
+  let reused = 0;
   for (const ref of detected.images) {
     const resolved = await opts.vault.resolveImage(opts.notePath, ref.imageName);
     if (!resolved) {
@@ -55,6 +93,16 @@ export async function processOutboundImages(
       continue;
     }
     const bytes = await opts.vault.readBinary(resolved.path);
+    const contentHash = await sha256Bytes(bytes);
+    const cached = prior[resolved.path];
+    if (cached && cached.h === contentHash) {
+      // Same bytes as last time → reuse the URL Outline already has.
+      const alt = resolved.fileName.replace(/\.[^.]+$/, '');
+      body = body.replace(ref.originalSyntax, `![${alt}](${cached.u})`);
+      next[resolved.path] = cached;
+      reused++;
+      continue;
+    }
     const attachment = await opts.api.createAttachment({
       name: resolved.fileName,
       contentType: resolved.contentType,
@@ -78,9 +126,10 @@ export async function processOutboundImages(
     const alt = resolved.fileName.replace(/\.[^.]+$/, '');
     const url = attachment.attachment?.url ?? '';
     body = body.replace(ref.originalSyntax, `![${alt}](${url})`);
+    next[resolved.path] = { u: url, h: contentHash };
     uploaded++;
   }
-  return { body, uploaded, total: detected.images.length };
+  return { body, map: next, uploaded, reused, total: detected.images.length };
 }
 
 // ─── Inbound (pull) ────────────────────────────────────────────────────
@@ -92,7 +141,11 @@ export interface ProcessInboundOptions {
   /** Path of the markdown file the body belongs to. Attachments are placed in a sibling folder. */
   notePath: string;
   body: string;
-  /** Where attachments live, relative to the note. Default: `_attachments`. */
+  /**
+   * Where attachments live, relative to the note's directory.
+   * Default: `attachments`. (Avoid leading `_` — Remotely Save and similar
+   * tools skip underscore-prefixed folders by default.)
+   */
   attachmentsFolder?: string;
   /** Test seam — override the HTTP fetcher. */
   fetcher?: AttachmentFetcher;
@@ -109,7 +162,7 @@ export type AttachmentFetcher = (
   apiKey: string
 ) => Promise<{ bytes: ArrayBuffer; contentType: string } | null>;
 
-const DEFAULT_ATTACHMENTS_FOLDER = '_attachments';
+const DEFAULT_ATTACHMENTS_FOLDER = 'attachments';
 
 const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const MD_LINK_RE = /(?<!\!)\[([^\]]*)\]\(([^)]+)\)/g;
@@ -137,8 +190,9 @@ export async function processInboundAttachments(
     return { body: opts.body, downloaded: 0, total: refs.length };
   }
   const fetcher = opts.fetcher;
+  const folderName = opts.attachmentsFolder ?? DEFAULT_ATTACHMENTS_FOLDER;
   const dir = directoryOf(opts.notePath);
-  const attachDir = `${dir ? dir + '/' : ''}${opts.attachmentsFolder ?? DEFAULT_ATTACHMENTS_FOLDER}`;
+  const attachDir = `${dir ? dir + '/' : ''}${folderName}`;
 
   let body = opts.body;
   let downloaded = 0;
@@ -157,7 +211,7 @@ export async function processInboundAttachments(
     const fileName = sanitizeAttachmentName(ref, ext);
     const fullPath = `${attachDir}/${fileName}`;
     await opts.vault.writeBinary(fullPath, fetched.bytes);
-    const localRef = `${opts.attachmentsFolder ?? DEFAULT_ATTACHMENTS_FOLDER}/${fileName}`;
+    const localRef = `${folderName}/${fileName}`;
     seen.set(ref.url, localRef);
     body = body.split(ref.url).join(localRef);
     downloaded++;

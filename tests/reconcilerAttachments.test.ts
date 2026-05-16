@@ -69,13 +69,64 @@ describe('reconciler + attachments', () => {
     });
     expect(result.events.map((e) => e.action)).toContain('created-local');
     const localRaw = vault.raw('Work/Note.md');
-    expect(localRaw).toContain('_attachments/');
+    expect(localRaw).toContain('attachments/');
     expect(localRaw).not.toContain('attachments.redirect');
     // Binary file actually present in the vault.
     const downloaded = vault
       .list()
-      .filter((p) => p.startsWith('Work/_attachments/'));
+      .filter((p) => p.startsWith('Work/attachments/'));
     expect(downloaded.length).toBe(1);
+  });
+
+  test('second push skips re-upload when image bytes are unchanged', async () => {
+    const vault = new MemoryVault();
+    const api = new FakeApi();
+    let uploads = 0;
+    api.createAttachment = async () => {
+      uploads++;
+      return {
+        uploadUrl: 'https://o.example/api/files',
+        form: { key: 'k' },
+        attachment: { url: `https://o.example/api/attachments.redirect?id=att-${uploads}` },
+      };
+    };
+    api.uploadAttachmentToStorage = async () => true;
+
+    vault.seedBinary('Work/attachments/diagram.png', bytesFor('STABLE'), 'image/png');
+    const body = 'See:\n\n![](attachments/diagram.png)';
+    const initialHash = await sha256(body);
+    vault.seed(
+      'Work/Note.md',
+      `---\noutline_id: d1\noutline_collection_id: c1\noutline_mapping_id: m1\noutline_revision: 1\noutline_synced_hash: differs-on-purpose\noutline_title: Note\n---\n${body}`
+    );
+    api.seed({ id: 'd1', title: 'Note', text: 'old', collectionId: 'c1', revision: 1 });
+    void initialHash;
+
+    const runPush = (): ReturnType<typeof reconcileMapping> =>
+      reconcileMapping({
+        vault,
+        api,
+        mapping: mapping(),
+        roots: [leaf('d1', 'Note', 'old', api.docs.get('d1')!.revision!)],
+        index: LocalIndex.empty(),
+        outlineUrl: 'https://o.example',
+        conflictBehavior: 'create-conflict-file',
+        apiKey: 'k',
+      });
+
+    // Pass 1: first push. Should upload once.
+    await runPush();
+    expect(uploads).toBe(1);
+    expect(vault.raw('Work/Note.md')).toContain('outline_attachments:');
+
+    // Re-dirty the body so reconciler decides to push again.
+    const v = vault.raw('Work/Note.md');
+    const dirtied = v.replace('See:', 'See edited:');
+    await vault.write('Work/Note.md', dirtied);
+
+    // Pass 2: image bytes unchanged → should NOT re-upload.
+    await runPush();
+    expect(uploads).toBe(1);
   });
 
   test('pushing uploads a local image referenced in the body', async () => {
@@ -91,12 +142,12 @@ describe('reconciler + attachments', () => {
     });
     api.uploadAttachmentToStorage = async () => true;
 
-    vault.seedBinary('Work/_attachments/diagram.png', bytesFor('PNG'), 'image/png');
-    const oldBody = 'Look at this:\n\n![](_attachments/diagram.png)';
+    vault.seedBinary('Work/attachments/diagram.png', bytesFor('PNG'), 'image/png');
+    const oldBody = 'Look at this:\n\n![](attachments/diagram.png)';
     const oldHash = await sha256(oldBody);
     vault.seed(
       'Work/Note.md',
-      `---\noutline_id: d1\noutline_collection_id: c1\noutline_mapping_id: m1\noutline_revision: 1\noutline_synced_hash: ${oldHash}\noutline_title: Note\n---\nLook at this:\n\n![](_attachments/diagram.png)\n\nAnd more text.`
+      `---\noutline_id: d1\noutline_collection_id: c1\noutline_mapping_id: m1\noutline_revision: 1\noutline_synced_hash: ${oldHash}\noutline_title: Note\n---\nLook at this:\n\n![](attachments/diagram.png)\n\nAnd more text.`
     );
     const remote: OutlineNode = leaf('d1', 'Note', 'old', 1);
     api.seed({ id: 'd1', title: 'Note', text: 'old', collectionId: 'c1', revision: 1 });
@@ -115,8 +166,8 @@ describe('reconciler + attachments', () => {
     expect(api.updatedRequests[0].text).toContain(
       'https://o.example/api/attachments.redirect?id=att-1'
     );
-    expect(api.updatedRequests[0].text).not.toContain('_attachments/diagram.png');
+    expect(api.updatedRequests[0].text).not.toContain('attachments/diagram.png');
     // Local body still references the local path.
-    expect(vault.raw('Work/Note.md')).toContain('![](_attachments/diagram.png)');
+    expect(vault.raw('Work/Note.md')).toContain('![](attachments/diagram.png)');
   });
 });

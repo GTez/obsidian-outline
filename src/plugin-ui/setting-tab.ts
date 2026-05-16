@@ -254,6 +254,23 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
+      .setName('Attachment folder name')
+      .setDesc(
+        'Pulled attachments live in <folder>/<this>/ next to each note. ' +
+          'Avoid a leading "_" — Remotely Save and similar plugins skip underscore-prefixed folders by default.'
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder('attachments')
+          .setValue(this.plugin.settings.attachmentFolderName)
+          .onChange(async (v) => {
+            const cleaned = v.trim().replace(/^\/+|\/+$/g, '');
+            this.plugin.settings.attachmentFolderName = cleaned || 'attachments';
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(parent)
       .setName('Conflict behavior')
       .addDropdown((d) => {
         const opts: Record<ConflictBehavior, string> = {
