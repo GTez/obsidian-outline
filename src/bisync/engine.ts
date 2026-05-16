@@ -16,6 +16,7 @@ import type { OutlineNode } from './hierarchy';
 import type { IOutlineApi } from '../outline-api/types';
 import type { OutlineSyncSettings, SyncMapping } from '../settings';
 import type { VaultIO } from './vault-io';
+import type { AttachmentFetcher } from './attachments';
 import { getOutlineMeta, type OutlineFrontmatter } from '../pipeline';
 
 export interface SyncMappingResult {
@@ -31,6 +32,12 @@ export interface BisyncEngineOptions {
   indexStorage: IndexStorage;
   /** Live settings reference — re-read on each operation so reconfigures take effect. */
   getSettings: () => OutlineSyncSettings;
+  /**
+   * Function for downloading attachment bytes. In Obsidian this is wired
+   * to `requestUrl`; in tests, an in-memory map. When omitted, inbound
+   * attachments are left as Outline URLs (and won't render locally).
+   */
+  attachmentFetcher?: AttachmentFetcher;
   log?: (msg: string) => void;
 }
 
@@ -39,6 +46,7 @@ export class BisyncEngine {
   private readonly vault: VaultIO;
   private readonly indexStorage: IndexStorage;
   private readonly getSettings: () => OutlineSyncSettings;
+  private readonly attachmentFetcher: AttachmentFetcher | undefined;
   private readonly log: (msg: string) => void;
   private index: LocalIndex | null = null;
   private syncInFlight: Promise<unknown> | null = null;
@@ -48,6 +56,7 @@ export class BisyncEngine {
     this.vault = opts.vault;
     this.indexStorage = opts.indexStorage;
     this.getSettings = opts.getSettings;
+    this.attachmentFetcher = opts.attachmentFetcher;
     this.log = opts.log ?? (() => undefined);
   }
 
@@ -178,6 +187,8 @@ export class BisyncEngine {
         roots,
         index,
         outlineUrl: settings.outlineUrl,
+        apiKey: settings.apiKey,
+        attachmentFetcher: this.attachmentFetcher,
         conflictBehavior: settings.conflictBehavior,
         pushNewLocal: false, // explicit user opt-in only; off by default
         onProgress: (e) => {

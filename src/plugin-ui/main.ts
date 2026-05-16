@@ -8,6 +8,7 @@ import { pickCollection } from './collection-picker-modal';
 import { BisyncEngine } from '../bisync/engine';
 import { ObsidianVaultIO } from '../bisync/obsidian-vault-io';
 import { ObsidianIndexStorage } from '../bisync/index-storage';
+import { obsidianAttachmentFetcher } from '../bisync/obsidian-fetcher';
 import { RateLimiter } from '../outline-api/rate-limiter';
 import { configure as configureOutlineApi } from '../outline-api/custom-instance';
 import { getOutlineMeta } from '../pipeline';
@@ -335,6 +336,7 @@ export default class OutlineSyncPlugin extends Plugin {
       vault: new ObsidianVaultIO(this.app),
       indexStorage: new ObsidianIndexStorage(this),
       getSettings: () => this.settings,
+      attachmentFetcher: obsidianAttachmentFetcher,
       log: (msg) => {
         if (this.settings.debugLogging) console.log('[outline-sync]', msg);
       },

@@ -11,6 +11,7 @@
 import { App, TFile, TFolder, normalizePath } from 'obsidian';
 import { updateOutlineFrontmatter } from '../frontmatter';
 import type { OutlineFrontmatter } from '../pipeline';
+import { getContentType } from '../utils/content-type';
 import type { VaultIO } from './vault-io';
 
 export class ObsidianVaultIO implements VaultIO {
@@ -89,6 +90,41 @@ export class ObsidianVaultIO implements VaultIO {
     };
     walk(root);
     return out;
+  }
+
+  async resolveImage(
+    fromPath: string,
+    imageName: string
+  ): Promise<{ path: string; fileName: string; contentType: string } | null> {
+    const decoded = decodeURIComponent(imageName);
+    const image =
+      this.app.metadataCache.getFirstLinkpathDest(decoded, fromPath) ??
+      this.app.vault.getAbstractFileByPath(decoded) ??
+      this.app.vault.getAbstractFileByPath(imageName);
+    if (!(image instanceof TFile)) return null;
+    return {
+      path: image.path,
+      fileName: image.name,
+      contentType: getContentType(image.extension),
+    };
+  }
+
+  async readBinary(path: string): Promise<ArrayBuffer> {
+    const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    if (!(file instanceof TFile)) throw new Error(`Not a file: ${path}`);
+    return this.app.vault.readBinary(file);
+  }
+
+  async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
+    const np = normalizePath(path);
+    const dir = directoryOf(np);
+    if (dir) await this.ensureFolder(dir);
+    const existing = this.app.vault.getAbstractFileByPath(np);
+    if (existing instanceof TFile) {
+      await this.app.vault.modifyBinary(existing, bytes);
+      return;
+    }
+    await this.app.vault.createBinary(np, bytes);
   }
 
   private getMarkdown(path: string): TFile {

@@ -21,6 +21,11 @@
 import type { OutlineFrontmatter } from '../pipeline';
 import type { ConflictBehavior, SyncMapping } from '../settings';
 import type { IOutlineApi } from '../outline-api/types';
+import {
+  processInboundAttachments,
+  processOutboundImages,
+  type AttachmentFetcher,
+} from './attachments';
 import { hasUnresolvedConflict, writeConflictFile } from './conflict';
 import { sha256 } from './hash';
 import { planVaultLayout, type OutlineNode, type PlannedFile } from './hierarchy';
@@ -70,6 +75,10 @@ export interface ReconcileOptions {
   onProgress?: (event: ReconcileEvent) => void;
   /** When true, pushes new vault files (no outline_id) up to Outline. */
   pushNewLocal?: boolean;
+  /** API key for fetching attachment bytes during pull. */
+  apiKey?: string;
+  /** Test seam — overrides the HTTP fetcher used to download attachments. */
+  attachmentFetcher?: AttachmentFetcher;
 }
 
 export interface ReconcileResult {
@@ -221,7 +230,7 @@ async function createLocalFromRemote(
 ): Promise<void> {
   const dir = directoryOf(plan.vaultPath);
   if (dir) await opts.vault.ensureFolder(dir);
-  const body = remote.text ?? '';
+  const body = await rewriteForLocal(opts, plan.vaultPath, remote.text ?? '');
   await opts.vault.write(plan.vaultPath, body);
   const hash = await sha256(body);
   await opts.vault.updateFrontmatter(plan.vaultPath, frontmatterFor(remote, opts, hash));
@@ -234,15 +243,23 @@ async function pushLocal(
   plan: PlannedFile,
   remote: OutlineNode
 ): Promise<void> {
+  // Upload any image references the user added, replacing local refs with
+  // Outline URLs in the body we'll send.
+  const outboundBody = await rewriteForRemote(opts, plan.vaultPath, local.body, remote.id);
   const res = await pushUpdate(opts.api, {
     id: remote.id,
-    title: remote.title, // title changes go through a separate path, see TODO
-    text: local.body,
+    title: remote.title,
+    text: outboundBody,
   });
   if (!res) return;
+  // The body sitting on disk is the local-refs version — we don't rewrite
+  // disk on push. The synced hash is over that disk body, so a re-pull
+  // against an unchanged remote will (after attachment download +
+  // local-refs rewrite) hash to the same value.
+  const localHash = await sha256(local.body);
   await opts.vault.updateFrontmatter(plan.vaultPath, {
     outline_revision: res.revision,
-    outline_synced_hash: res.syncedHash,
+    outline_synced_hash: localHash,
     outline_last_synced: new Date().toISOString(),
     outline_sync_status: 'synced',
     outline_title: res.title || remote.title,
@@ -250,18 +267,8 @@ async function pushLocal(
       ? `${opts.outlineUrl.replace(/\/$/, '')}/doc/${res.urlId}`
       : undefined,
   });
-  // If the server canonicalized the body (it usually does), write that back
-  // so the local hash continues to match the synced hash. This is the only
-  // place we silently overwrite local content — it is intentional and
-  // documented in the design.
-  if (res.canonicalText !== local.body) {
-    await opts.vault.write(plan.vaultPath, res.canonicalText);
-    await opts.vault.updateFrontmatter(plan.vaultPath, {
-      outline_synced_hash: res.syncedHash,
-    });
-  }
   opts.index.set(
-    toIndexEntry(plan, { ...remote, revision: res.revision }, res.syncedHash, opts.mapping.id)
+    toIndexEntry(plan, { ...remote, revision: res.revision }, localHash, opts.mapping.id)
   );
 }
 
@@ -270,7 +277,7 @@ async function pullRemoteOverLocal(
   plan: PlannedFile,
   remote: OutlineNode
 ): Promise<void> {
-  const body = remote.text ?? '';
+  const body = await rewriteForLocal(opts, plan.vaultPath, remote.text ?? '');
   await opts.vault.write(plan.vaultPath, body);
   const hash = await sha256(body);
   await opts.vault.updateFrontmatter(plan.vaultPath, frontmatterFor(remote, opts, hash));
@@ -281,38 +288,40 @@ async function createRemoteFromLocal(
   opts: ReconcileOptions,
   doc: LocalDoc
 ): Promise<void> {
-  // Best-effort: use the basename as the title and put the doc at the root
-  // of the mapping (no parent). The next sync pass will reconcile the
-  // result into the proper hierarchy if Outline moves it.
   const basename = doc.path.split('/').pop()!.replace(/\.md$/, '');
   const collectionId = collectionIdForMapping(opts);
   if (!collectionId) return;
-  const res = await pushCreate(opts.api, {
+  // Create first so we have an Outline doc id to attach uploads to.
+  const initial = await pushCreate(opts.api, {
     title: basename,
     text: doc.body,
     collectionId,
   });
-  if (!res) return;
+  if (!initial) return;
+  // Now upload any images and re-update if the body changed.
+  const outboundBody = await rewriteForRemote(opts, doc.path, doc.body, initial.outlineId);
+  if (outboundBody !== doc.body) {
+    await pushUpdate(opts.api, {
+      id: initial.outlineId,
+      title: basename,
+      text: outboundBody,
+    });
+  }
+  const localHash = await sha256(doc.body);
   await opts.vault.updateFrontmatter(doc.path, {
-    outline_id: res.outlineId,
+    outline_id: initial.outlineId,
     outline_collection_id: collectionId,
-    outline_revision: res.revision,
-    outline_synced_hash: res.syncedHash,
+    outline_revision: initial.revision,
+    outline_synced_hash: localHash,
     outline_last_synced: new Date().toISOString(),
     outline_sync_status: 'synced',
     outline_mapping_id: opts.mapping.id,
-    outline_title: res.title,
+    outline_title: initial.title,
     outline_parent_id: null,
-    outline_url: res.urlId
-      ? `${opts.outlineUrl.replace(/\/$/, '')}/doc/${res.urlId}`
+    outline_url: initial.urlId
+      ? `${opts.outlineUrl.replace(/\/$/, '')}/doc/${initial.urlId}`
       : undefined,
   });
-  if (res.canonicalText !== doc.body) {
-    await opts.vault.write(doc.path, res.canonicalText);
-    await opts.vault.updateFrontmatter(doc.path, {
-      outline_synced_hash: res.syncedHash,
-    });
-  }
 }
 
 async function invokeConflictHandler(
@@ -387,4 +396,47 @@ function toIndexEntry(
 function directoryOf(path: string): string {
   const idx = path.lastIndexOf('/');
   return idx === -1 ? '' : path.slice(0, idx);
+}
+
+/**
+ * Process attachments in a body arriving from Outline. Downloads each
+ * referenced attachment into the vault and rewrites the markdown to use
+ * local relative paths.
+ */
+async function rewriteForLocal(
+  opts: ReconcileOptions,
+  notePath: string,
+  body: string
+): Promise<string> {
+  if (!opts.apiKey && !opts.attachmentFetcher) return body;
+  const res = await processInboundAttachments({
+    vault: opts.vault,
+    outlineUrl: opts.outlineUrl,
+    apiKey: opts.apiKey ?? '',
+    notePath,
+    body,
+    fetcher: opts.attachmentFetcher,
+  });
+  return res.body;
+}
+
+/**
+ * Process image references in a body about to be pushed to Outline.
+ * Uploads each via the Outline API and rewrites the markdown to use the
+ * returned Outline URLs.
+ */
+async function rewriteForRemote(
+  opts: ReconcileOptions,
+  notePath: string,
+  body: string,
+  documentId: string
+): Promise<string> {
+  const res = await processOutboundImages({
+    vault: opts.vault,
+    api: opts.api,
+    notePath,
+    body,
+    documentId,
+  });
+  return res.body;
 }

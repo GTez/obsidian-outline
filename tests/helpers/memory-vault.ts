@@ -5,6 +5,9 @@ import { applyFrontmatterUpdates } from '../../src/frontmatter';
 interface MemoryFile {
   body: string;
   frontmatter: Record<string, unknown>;
+  /** Set when seeded as binary; markdown files leave this undefined. */
+  binary?: ArrayBuffer;
+  contentType?: string;
 }
 
 /**
@@ -88,6 +91,55 @@ export class MemoryVault implements VaultIO {
     return [...this.files.keys()]
       .filter((p) => (p === root ? false : p.startsWith(prefix) && p.endsWith('.md')))
       .sort();
+  }
+
+  seedBinary(path: string, bytes: ArrayBuffer, contentType = 'image/png'): void {
+    this.files.set(path, { body: '', frontmatter: {}, binary: bytes, contentType });
+    this.addFolderChain(path);
+  }
+
+  async resolveImage(
+    fromPath: string,
+    imageName: string
+  ): Promise<{ path: string; fileName: string; contentType: string } | null> {
+    const decoded = decodeURIComponent(imageName);
+    const candidates = [decoded, imageName];
+    // Try absolute paths first, then relative to fromPath's folder.
+    const fromDir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : '';
+    for (const c of candidates) {
+      if (this.files.has(c) && this.files.get(c)!.binary) return this.makeImageMeta(c);
+      const rel = fromDir ? `${fromDir}/${c}` : c;
+      if (this.files.has(rel) && this.files.get(rel)!.binary) return this.makeImageMeta(rel);
+    }
+    // Last-resort: scan by basename.
+    for (const [path, file] of this.files.entries()) {
+      if (file.binary && path.endsWith(`/${decoded}`)) return this.makeImageMeta(path);
+      if (file.binary && path === decoded) return this.makeImageMeta(path);
+    }
+    return null;
+  }
+
+  private makeImageMeta(path: string): { path: string; fileName: string; contentType: string } {
+    const f = this.files.get(path)!;
+    const fileName = path.split('/').pop()!;
+    return { path, fileName, contentType: f.contentType ?? 'application/octet-stream' };
+  }
+
+  async readBinary(path: string): Promise<ArrayBuffer> {
+    const f = this.files.get(path);
+    if (!f?.binary) throw new Error(`No binary: ${path}`);
+    return f.binary;
+  }
+
+  async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
+    const existing = this.files.get(path);
+    this.files.set(path, {
+      body: '',
+      frontmatter: existing?.frontmatter ?? {},
+      binary: bytes,
+      contentType: existing?.contentType,
+    });
+    this.addFolderChain(path);
   }
 
   private addFolderChain(path: string): void {

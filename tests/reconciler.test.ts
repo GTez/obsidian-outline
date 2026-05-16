@@ -99,8 +99,9 @@ describe('reconcileMapping', () => {
     expect(result.events.map((e) => e.action)).toContain('pushed');
     expect(api.updatedRequests).toHaveLength(1);
     expect(api.updatedRequests[0].text).toBe('brand new content');
-    // After push, local body should match server canonical form.
-    expect(vault.raw('Work/Note.md')).toContain('brand new content\n');
+    // Local body is preserved as-is — synced hash is computed over the
+    // disk version so a re-pull against an unchanged remote matches.
+    expect(vault.raw('Work/Note.md')).toContain('brand new content');
   });
 
   test('pulls when remote revision advanced and local unchanged', async () => {

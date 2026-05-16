@@ -30,4 +30,17 @@ export interface VaultIO {
   updateFrontmatter(path: string, updates: OutlineFrontmatter): Promise<void>;
   /** List markdown files (recursively) under a folder. */
   listMarkdown(rootPath: string): Promise<string[]>;
+  /**
+   * Resolve an Obsidian-style image reference (wikilink target or relative
+   * path) against the directory of `fromPath`. Returns `null` when the
+   * image cannot be located. The returned `path` is vault-relative.
+   */
+  resolveImage(
+    fromPath: string,
+    imageName: string
+  ): Promise<{ path: string; fileName: string; contentType: string } | null>;
+  /** Read raw bytes from a vault file. */
+  readBinary(path: string): Promise<ArrayBuffer>;
+  /** Write raw bytes to a vault file (overwrites if present). */
+  writeBinary(path: string, bytes: ArrayBuffer): Promise<void>;
 }

@@ -1,4 +1,9 @@
-import type { Document, IOutlineApi, NavigationNode } from '../../src/outline-api/types';
+import type {
+  AttachmentsCreate200Data,
+  Document,
+  IOutlineApi,
+  NavigationNode,
+} from '../../src/outline-api/types';
 
 /**
  * In-memory Outline API for engine-level tests.
@@ -87,12 +92,10 @@ export class FakeApi implements IOutlineApi {
   async searchDocumentByTitle(): Promise<null> {
     return null;
   }
-  async createAttachment(): Promise<null> {
-    return null;
-  }
-  async uploadAttachmentToStorage(): Promise<false> {
-    return false;
-  }
+  createAttachment: IOutlineApi['createAttachment'] = async (): Promise<AttachmentsCreate200Data | null> =>
+    null;
+  uploadAttachmentToStorage: IOutlineApi['uploadAttachmentToStorage'] = async (): Promise<boolean> =>
+    false;
   async listDocuments(params: {
     parentDocumentId?: string;
     collectionId?: string;
