@@ -24,7 +24,21 @@ Map an Outline document or collection subtree to a vault folder. Edits flow in b
 
 ## Installation
 
-### Manual
+### BRAT (recommended — works on desktop, iOS, and iPadOS)
+
+The plugin isn't in Obsidian's community store yet, so the cleanest way to install it across multiple devices — especially iOS and iPadOS, where you can't drop files into the vault's plugins folder by hand — is via **BRAT** (Beta Reviewer's Auto-update Tester).
+
+On each device:
+
+1. Install **BRAT** from **Settings → Community Plugins → Browse** and enable it.
+2. Run the command **BRAT: Add a beta plugin for testing**.
+3. Paste the repo URL: `https://github.com/GTez/obsidian-outline`.
+4. BRAT downloads `main.js` and `manifest.json` from the latest GitHub release and installs them into `<vault>/.obsidian/plugins/obsidian-outline-sync/`.
+5. Enable **Outline Sync** in **Settings → Community Plugins**.
+
+BRAT will auto-update the plugin whenever a new release is published (or you can trigger **BRAT: Check for updates to all beta plugins** manually).
+
+### Manual (desktop only)
 
 1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/GTez/obsidian-outline/releases).
 2. Copy both files to `<vault>/.obsidian/plugins/obsidian-outline-sync/`.
