@@ -239,6 +239,34 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
+      .setName('Sync on save (experimental)')
+      .setDesc(
+        'Re-sync the mapping after the active file is modified, debounced by the value below. ' +
+          'Obsidian auto-saves frequently, so a short debounce can be chatty.'
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.syncOnSave).onChange(async (v) => {
+          this.plugin.settings.syncOnSave = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(parent)
+      .setName('Sync-on-save debounce (seconds)')
+      .setDesc('How long to wait after the last modify before syncing. Minimum 1.')
+      .addText((t) =>
+        t
+          .setValue(String(this.plugin.settings.syncOnSaveDebounceSeconds))
+          .onChange(async (v) => {
+            const n = parseInt(v, 10);
+            if (Number.isFinite(n) && n >= 1) {
+              this.plugin.settings.syncOnSaveDebounceSeconds = n;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
+
+    new Setting(parent)
       .setName('Sync interval (minutes)')
       .setDesc('0 = disabled. Outline VPN can drop, so silent failures are OK.')
       .addText((t) =>

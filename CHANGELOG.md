@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] – 2026-05-19
+
+### Added
+
+- **Sync on save (experimental).** New setting re-syncs the active mapping
+  after the file is modified, debounced by a configurable number of
+  seconds (default 10). Disabled by default; the debounce is what makes
+  it usable with Obsidian's frequent auto-save.
+
+### Fixed
+
+- **Extra blank lines between blocks on pull.** Outline's markdown
+  serializer emits multiple blank lines between top-level blocks; the
+  pull pipeline now collapses runs of three or more newlines to exactly
+  two, preserving content inside fenced code blocks verbatim.
+
+### Changed
+
+- Author renamed from `GTez` to `Jesse Houston` in `manifest.json`,
+  `package.json`, and the README contributors entry. The GitHub repo
+  URL is unchanged.
+
 ## [2.0.0] – 2026-05-16
 
 ### Added — Bidirectional sync

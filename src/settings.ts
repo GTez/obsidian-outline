@@ -52,6 +52,14 @@ export interface OutlineSyncSettings {
   // ─── Sync behavior ───────────────────────────────────────────────────────
   syncOnStartup: boolean;
   syncOnFileOpen: boolean;
+  /**
+   * Sync the active mapping after the user edits a synced file. Debounced
+   * by {@link syncOnSaveDebounceSeconds}. Experimental — Obsidian fires
+   * modify on every auto-save, so the debounce is what makes this usable.
+   */
+  syncOnSave: boolean;
+  /** Seconds of inactivity after a modify before triggering sync-on-save. */
+  syncOnSaveDebounceSeconds: number;
   /** 0 = disabled. */
   syncIntervalMinutes: number;
   conflictBehavior: ConflictBehavior;
@@ -79,6 +87,8 @@ export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   mappings: [],
   syncOnStartup: true,
   syncOnFileOpen: false,
+  syncOnSave: false,
+  syncOnSaveDebounceSeconds: 10,
   syncIntervalMinutes: 15,
   conflictBehavior: 'create-conflict-file',
   attachmentFolderName: 'attachments',

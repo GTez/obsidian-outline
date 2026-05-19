@@ -227,7 +227,7 @@ See [`CLAUDE.md`](./CLAUDE.md) for the project's internal design and a contribut
 
 - **[@defcon1702](https://github.com/defcon1702)** — Original author of the one-way push plugin (v1.x).
 - **[@matthias-feddersen](https://github.com/matthias-feddersen)** — v1.8.0 refactor: pipeline architecture, callout conversion, typed API client.
-- **[@GTez](https://github.com/GTez)** — v2.0.0 bidirectional sync, mobile support, attachment round-trip, conflict workflow.
+- **Jesse Houston** ([@GTez](https://github.com/GTez)) — v2.0.0 bidirectional sync, mobile support, attachment round-trip, conflict workflow.
 
 ## License
 

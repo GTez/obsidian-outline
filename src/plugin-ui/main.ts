@@ -21,6 +21,7 @@ export default class OutlineSyncPlugin extends Plugin {
   private pushEngine!: PushEngine;
   private statusBarEl: HTMLElement | null = null;
   private intervalHandle: number | null = null;
+  private saveDebounceTimers: Map<string, number> = new Map();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -59,6 +60,16 @@ export default class OutlineSyncPlugin extends Plugin {
         })
       );
     }
+
+    // Always register modify; the handler short-circuits when syncOnSave
+    // is off, so toggling the setting doesn't need a plugin reload.
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        if (file instanceof TFile && file.extension === 'md') {
+          this.scheduleSyncOnSave(file);
+        }
+      })
+    );
   }
 
   onunload(): void {
@@ -66,6 +77,10 @@ export default class OutlineSyncPlugin extends Plugin {
       window.clearInterval(this.intervalHandle);
       this.intervalHandle = null;
     }
+    for (const handle of this.saveDebounceTimers.values()) {
+      window.clearTimeout(handle);
+    }
+    this.saveDebounceTimers.clear();
   }
 
   // ─── Commands ─────────────────────────────────────────────────────────
@@ -202,6 +217,35 @@ export default class OutlineSyncPlugin extends Plugin {
       new Notice(`Outline Sync: ${failed.length} failed of ${results.length}.`);
     }
     this.setStatus('idle');
+  }
+
+  private scheduleSyncOnSave(file: TFile): void {
+    if (!this.settings.syncOnSave) return;
+    void (async () => {
+      const raw = await this.app.vault.read(file);
+      const meta = getOutlineMeta(raw);
+      const mappingId = meta.outline_mapping_id;
+      if (!mappingId) return;
+
+      const existing = this.saveDebounceTimers.get(mappingId);
+      if (existing !== undefined) window.clearTimeout(existing);
+
+      const delayMs = Math.max(1, this.settings.syncOnSaveDebounceSeconds) * 1000;
+      const handle = window.setTimeout(() => {
+        this.saveDebounceTimers.delete(mappingId);
+        void this.runSyncOnSave(mappingId);
+      }, delayMs);
+      this.saveDebounceTimers.set(mappingId, handle);
+    })();
+  }
+
+  private async runSyncOnSave(mappingId: string): Promise<void> {
+    this.setStatus('syncing');
+    try {
+      await this.engine.syncMappingById(mappingId);
+    } finally {
+      this.setStatus('idle');
+    }
   }
 
   private async syncFile(file: TFile): Promise<void> {

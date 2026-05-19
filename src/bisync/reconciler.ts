@@ -31,6 +31,7 @@ import {
 } from './attachments';
 import { hasUnresolvedConflict, writeConflictFile } from './conflict';
 import { sha256 } from './hash';
+import { normalizeBlankLines } from './markdown-normalize';
 import { planVaultLayout, type OutlineNode, type PlannedFile } from './hierarchy';
 import type { IndexEntry, LocalIndex } from './local-index';
 import { pushCreate, pushUpdate } from './pusher';
@@ -435,13 +436,14 @@ async function rewriteForLocal(
   notePath: string,
   body: string
 ): Promise<string> {
-  if (!opts.apiKey && !opts.attachmentFetcher) return body;
+  const normalized = normalizeBlankLines(body);
+  if (!opts.apiKey && !opts.attachmentFetcher) return normalized;
   const res = await processInboundAttachments({
     vault: opts.vault,
     outlineUrl: opts.outlineUrl,
     apiKey: opts.apiKey ?? '',
     notePath,
-    body,
+    body: normalized,
     fetcher: opts.attachmentFetcher,
     attachmentsFolder: opts.attachmentFolderName,
   });
