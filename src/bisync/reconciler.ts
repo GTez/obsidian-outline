@@ -83,8 +83,8 @@ export interface ReconcileOptions {
   apiKey?: string;
   /** Test seam — overrides the HTTP fetcher used to download attachments. */
   attachmentFetcher?: AttachmentFetcher;
-  /** Folder name (relative to each note) where pulled attachments are stored. */
-  attachmentFolderName?: string;
+  /** Vault-relative directory where pulled attachments are stored. */
+  attachmentsPath?: string;
 }
 
 export interface ReconcileResult {
@@ -445,7 +445,7 @@ async function rewriteForLocal(
     notePath,
     body: normalized,
     fetcher: opts.attachmentFetcher,
-    attachmentsFolder: opts.attachmentFolderName,
+    attachmentsPath: opts.attachmentsPath,
   });
   return res.body;
 }

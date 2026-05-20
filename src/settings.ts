@@ -64,11 +64,12 @@ export interface OutlineSyncSettings {
   syncIntervalMinutes: number;
   conflictBehavior: ConflictBehavior;
   /**
-   * Where pulled attachments are stored, relative to each note's folder.
-   * Default `"attachments"`. Avoid a leading underscore — Remotely Save
-   * and similar plugins skip `_`-prefixed folders by default.
+   * Vault-relative directory where pulled attachments are stored (single
+   * centralized folder, shared across all synced notes). Default
+   * `"Extras/Outline-Sync/Attachments"`. Avoid a leading underscore —
+   * Remotely Save and similar plugins skip `_`-prefixed folders by default.
    */
-  attachmentFolderName: string;
+  attachmentsPath: string;
 
   // ─── Advanced ────────────────────────────────────────────────────────────
   /** Requests/hour to leave unused as a safety margin against the ~1000/hr limit. */
@@ -91,7 +92,7 @@ export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   syncOnSaveDebounceSeconds: 10,
   syncIntervalMinutes: 15,
   conflictBehavior: 'create-conflict-file',
-  attachmentFolderName: 'attachments',
+  attachmentsPath: 'Extras/Outline-Sync/Attachments',
   rateLimitBuffer: 100,
   debugLogging: false,
   deletionsFromOutlinePropagate: false,

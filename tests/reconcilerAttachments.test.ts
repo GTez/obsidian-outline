@@ -69,12 +69,13 @@ describe('reconciler + attachments', () => {
     });
     expect(result.events.map((e) => e.action)).toContain('created-local');
     const localRaw = vault.raw('Work/Note.md');
-    expect(localRaw).toContain('attachments/');
+    // Note at Work/Note.md → ../Extras/Outline-Sync/Attachments/
+    expect(localRaw).toContain('../Extras/Outline-Sync/Attachments/');
     expect(localRaw).not.toContain('attachments.redirect');
-    // Binary file actually present in the vault.
+    // Binary file actually present in the centralized vault folder.
     const downloaded = vault
       .list()
-      .filter((p) => p.startsWith('Work/attachments/'));
+      .filter((p) => p.startsWith('Extras/Outline-Sync/Attachments/'));
     expect(downloaded.length).toBe(1);
   });
 

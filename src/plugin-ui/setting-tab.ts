@@ -282,18 +282,20 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
-      .setName('Attachment folder name')
+      .setName('Attachments folder')
       .setDesc(
-        'Pulled attachments live in <folder>/<this>/ next to each note. ' +
+        'Vault-relative path where pulled attachments are stored, shared across all synced notes. ' +
+          'Default: Extras/Outline-Sync/Attachments. ' +
           'Avoid a leading "_" — Remotely Save and similar plugins skip underscore-prefixed folders by default.'
       )
       .addText((t) =>
         t
-          .setPlaceholder('attachments')
-          .setValue(this.plugin.settings.attachmentFolderName)
+          .setPlaceholder('Extras/Outline-Sync/Attachments')
+          .setValue(this.plugin.settings.attachmentsPath)
           .onChange(async (v) => {
             const cleaned = v.trim().replace(/^\/+|\/+$/g, '');
-            this.plugin.settings.attachmentFolderName = cleaned || 'attachments';
+            this.plugin.settings.attachmentsPath =
+              cleaned || 'Extras/Outline-Sync/Attachments';
             await this.plugin.saveSettings();
           })
       );

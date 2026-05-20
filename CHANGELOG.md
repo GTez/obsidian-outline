@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] – 2026-05-20
+
+### Fixed
+
+- **Pull-side attachments with host-relative URLs were silently dropped.**
+  Outline can serialize image links with relative URLs like
+  `![](/api/attachments.redirect?id=…)`. The filter only accepted
+  absolute URLs on the configured Outline host, so relative ones were
+  left as broken refs in the vault. Relative URLs are now resolved
+  against `outlineUrl` and downloaded normally.
+- **Image-link parser conflated URL and title.** Links of the form
+  `![alt](url "title")` were captured as a single URL group, which
+  mangled the fetched URL whenever Outline emitted title metadata.
+  The parser now follows CommonMark and splits URL from optional title.
+
+### Changed
+
+- **Attachments now live in one centralized vault folder.** Pulled
+  attachments go to a single `Extras/Outline-Sync/Attachments/`
+  directory (configurable) instead of per-note `attachments/` siblings.
+  The setting `attachmentFolderName` is replaced by `attachmentsPath`.
+  Existing users who previously pulled attachments will see a one-time
+  re-upload on the next push (the dedup cache is keyed by local path).
+
+### Added
+
+- **Outline image-size metadata is translated to Obsidian syntax.**
+  When Outline serializes an image as `![](url "right-50 =304x171")`,
+  the size hint `=304x171` is now rendered into the local link as
+  Obsidian's pipe-separated size syntax (`![|304x171](path)`).
+  Alignment tokens like `right-50` are not portable and are dropped.
+
 ## [2.1.0] – 2026-05-19
 
 ### Added

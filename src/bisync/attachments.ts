@@ -138,15 +138,16 @@ export interface ProcessInboundOptions {
   vault: VaultIO;
   outlineUrl: string;
   apiKey: string;
-  /** Path of the markdown file the body belongs to. Attachments are placed in a sibling folder. */
+  /** Path of the markdown file the body belongs to. The note's directory is used to compute a relative link to {@link attachmentsPath}. */
   notePath: string;
   body: string;
   /**
-   * Where attachments live, relative to the note's directory.
-   * Default: `attachments`. (Avoid leading `_` — Remotely Save and similar
-   * tools skip underscore-prefixed folders by default.)
+   * Vault-relative directory where pulled attachments are written
+   * (single centralized folder, not per-note). Default:
+   * `Extras/Outline-Sync/Attachments`. Avoid a leading `_` — Remotely
+   * Save and similar tools skip underscore-prefixed folders by default.
    */
-  attachmentsFolder?: string;
+  attachmentsPath?: string;
   /** Test seam — override the HTTP fetcher. */
   fetcher?: AttachmentFetcher;
 }
@@ -162,10 +163,14 @@ export type AttachmentFetcher = (
   apiKey: string
 ) => Promise<{ bytes: ArrayBuffer; contentType: string } | null>;
 
-const DEFAULT_ATTACHMENTS_FOLDER = 'attachments';
+export const DEFAULT_ATTACHMENTS_PATH = 'Extras/Outline-Sync/Attachments';
 
-const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
-const MD_LINK_RE = /(?<!\!)\[([^\]]*)\]\(([^)]+)\)/g;
+// Markdown image: ![alt](url) | ![alt](url "title") | ![alt](url 'title') | ![alt](<url>)
+// Captures: 1=alt, 2|3=url (bracketed or bare), 4|5=title (double-quoted or single-quoted).
+const MD_IMAGE_RE =
+  /!\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"([^"]*)"|\s+'([^']*)')?\s*\)/g;
+const MD_LINK_RE =
+  /(?<!\!)\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"([^"]*)"|\s+'([^']*)')?\s*\)/g;
 
 const EXT_FROM_CONTENT_TYPE: Record<string, string> = {
   'image/png': 'png',
@@ -181,7 +186,8 @@ const EXT_FROM_CONTENT_TYPE: Record<string, string> = {
 export async function processInboundAttachments(
   opts: ProcessInboundOptions
 ): Promise<ProcessInboundResult> {
-  const refs = collectAttachmentRefs(opts.body, opts.outlineUrl);
+  const base = opts.outlineUrl.replace(/\/$/, '');
+  const refs = collectAttachmentRefs(opts.body, base);
   if (refs.length === 0) return { body: opts.body, downloaded: 0, total: 0 };
 
   if (!opts.fetcher) {
@@ -190,61 +196,124 @@ export async function processInboundAttachments(
     return { body: opts.body, downloaded: 0, total: refs.length };
   }
   const fetcher = opts.fetcher;
-  const folderName = opts.attachmentsFolder ?? DEFAULT_ATTACHMENTS_FOLDER;
-  const dir = directoryOf(opts.notePath);
-  const attachDir = `${dir ? dir + '/' : ''}${folderName}`;
+  const attachmentsPath = (opts.attachmentsPath ?? DEFAULT_ATTACHMENTS_PATH)
+    .replace(/^\/+|\/+$/g, '');
+  const relPrefix = relativePath(directoryOf(opts.notePath), attachmentsPath);
 
+  // First pass: download each unique absolute URL once.
+  const seen = new Map<string, string>(); // absolute url → file name
+  for (const ref of refs) {
+    if (seen.has(ref.absoluteUrl)) continue;
+    const fetched = await fetcher(ref.absoluteUrl, opts.apiKey);
+    if (!fetched) continue;
+    const ext = pickExtension(fetched.contentType, ref.absoluteUrl);
+    const fileName = sanitizeAttachmentName(ref, ext);
+    const fullPath = `${attachmentsPath}/${fileName}`;
+    await opts.vault.writeBinary(fullPath, fetched.bytes);
+    seen.set(ref.absoluteUrl, fileName);
+  }
+
+  // Second pass: rewrite the body. Replace each full match exactly once;
+  // duplicate matches resolve to the same downloaded file.
   let body = opts.body;
   let downloaded = 0;
-  // Dedup by URL so a re-referenced attachment is downloaded once.
-  const seen = new Map<string, string>(); // url → local relative path
-
   for (const ref of refs) {
-    if (seen.has(ref.url)) {
-      body = body.split(ref.url).join(seen.get(ref.url)!);
-      downloaded++;
-      continue;
-    }
-    const fetched = await fetcher(ref.url, opts.apiKey);
-    if (!fetched) continue;
-    const ext = pickExtension(fetched.contentType, ref.url);
-    const fileName = sanitizeAttachmentName(ref, ext);
-    const fullPath = `${attachDir}/${fileName}`;
-    await opts.vault.writeBinary(fullPath, fetched.bytes);
-    const localRef = `${folderName}/${fileName}`;
-    seen.set(ref.url, localRef);
-    body = body.split(ref.url).join(localRef);
+    const fileName = seen.get(ref.absoluteUrl);
+    if (!fileName) continue;
+    const localRef = `${relPrefix}/${fileName}`;
+    const newAlt = ref.isImage ? altWithSize(ref.alt, ref.title) : ref.alt;
+    const newForm = ref.isImage ? `![${newAlt}](${localRef})` : `[${ref.alt}](${localRef})`;
+    body = body.replace(ref.fullMatch, newForm);
     downloaded++;
   }
   return { body, downloaded, total: refs.length };
 }
 
 interface AttachmentRef {
-  url: string;
+  /** Entire matched substring, used to do a literal replace on the body. */
+  fullMatch: string;
+  /** URL as captured (may be host-relative). */
+  rawUrl: string;
+  /** URL resolved against the Outline base; what we actually fetch. Also our dedup key. */
+  absoluteUrl: string;
   alt: string;
+  title: string | null;
+  isImage: boolean;
   /** Outline attachment UUID when extractable from the URL; used for stable filenames. */
   id?: string;
 }
 
-function collectAttachmentRefs(body: string, outlineUrl: string): AttachmentRef[] {
-  const base = outlineUrl.replace(/\/$/, '');
+function collectAttachmentRefs(body: string, base: string): AttachmentRef[] {
   const matches: AttachmentRef[] = [];
-  const consider = (url: string, alt: string): void => {
-    if (!isOutlineAttachmentUrl(url, base)) return;
-    matches.push({ url, alt, id: extractAttachmentId(url) });
+  const consider = (
+    fullMatch: string,
+    rawUrl: string,
+    alt: string,
+    title: string | null,
+    isImage: boolean
+  ): void => {
+    if (!isOutlineAttachmentUrl(rawUrl, base)) return;
+    const absoluteUrl = resolveUrl(rawUrl, base);
+    matches.push({
+      fullMatch,
+      rawUrl,
+      absoluteUrl,
+      alt,
+      title,
+      isImage,
+      id: extractAttachmentId(absoluteUrl),
+    });
   };
   for (const m of body.matchAll(MD_IMAGE_RE)) {
-    consider(m[2], m[1]);
+    consider(m[0], m[2] ?? m[3], m[1] ?? '', m[4] ?? m[5] ?? null, true);
   }
   for (const m of body.matchAll(MD_LINK_RE)) {
-    consider(m[2], m[1]);
+    consider(m[0], m[2] ?? m[3], m[1] ?? '', m[4] ?? m[5] ?? null, false);
   }
   return matches;
 }
 
 function isOutlineAttachmentUrl(url: string, base: string): boolean {
-  if (!url.startsWith(base)) return false;
+  // Accept either an absolute URL on the configured Outline host or a
+  // host-relative path. Outline sometimes serializes attachment links as
+  // host-relative (`/api/attachments.redirect?...`) — those used to be
+  // silently dropped because they didn't startsWith(base).
+  const isAbsoluteOnBase = base.length > 0 && url.startsWith(base);
+  const isHostRelative = url.startsWith('/') && !url.startsWith('//');
+  if (!isAbsoluteOnBase && !isHostRelative) return false;
   return /\/api\/attachments\.redirect|\/api\/files\/|\/uploads\//i.test(url);
+}
+
+function resolveUrl(url: string, base: string): string {
+  if (url.startsWith('/') && !url.startsWith('//')) return base + url;
+  return url;
+}
+
+/**
+ * Translate Outline's title-encoded size metadata (e.g. `"right-50 =304x171"`)
+ * into Obsidian's pipe-separated image size syntax (`alt|304x171`). Alignment
+ * tokens like `right-50` are not portable and are dropped.
+ */
+function altWithSize(alt: string, title: string | null): string {
+  if (!title) return alt;
+  const m = /=(\d+)(?:x(\d+))?/.exec(title);
+  if (!m) return alt;
+  const size = m[2] ? `${m[1]}x${m[2]}` : m[1];
+  return alt ? `${alt}|${size}` : `|${size}`;
+}
+
+/**
+ * Compute a relative path from a directory to a vault-absolute target.
+ * Both inputs are forward-slashed; no leading slashes.
+ */
+function relativePath(fromDir: string, toPath: string): string {
+  const from = fromDir ? fromDir.split('/') : [];
+  const to = toPath.split('/');
+  let i = 0;
+  while (i < from.length && i < to.length && from[i] === to[i]) i++;
+  const up = '../'.repeat(from.length - i);
+  const down = to.slice(i).join('/');
+  return up + down || '.';
 }
 
 function extractAttachmentId(url: string): string | undefined {

@@ -189,7 +189,7 @@ export class BisyncEngine {
         outlineUrl: settings.outlineUrl,
         apiKey: settings.apiKey,
         attachmentFetcher: this.attachmentFetcher,
-        attachmentFolderName: settings.attachmentFolderName,
+        attachmentsPath: settings.attachmentsPath,
         conflictBehavior: settings.conflictBehavior,
         pushNewLocal: false, // explicit user opt-in only; off by default
         onProgress: (e) => {

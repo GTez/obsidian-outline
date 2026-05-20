@@ -175,9 +175,125 @@ describe('processInboundAttachments', () => {
       fetcher,
     });
     expect(res.downloaded).toBe(1);
-    expect(res.body).toContain('attachments/');
-    expect(res.body).toMatch(/attachments\/[^)\s]+\.jpg/);
-    expect(vault.list().some((p) => p.startsWith('Notes/attachments/'))).toBe(true);
+    // Note is at Notes/Doc.md → ../Extras/Outline-Sync/Attachments/
+    expect(res.body).toContain('../Extras/Outline-Sync/Attachments/');
+    expect(res.body).toMatch(/Attachments\/[^)\s]+\.jpg/);
+    expect(
+      vault.list().some((p) => p.startsWith('Extras/Outline-Sync/Attachments/'))
+    ).toBe(true);
+  });
+
+  test('downloads host-relative attachment URLs (the original bug)', async () => {
+    const vault = new MemoryVault();
+    let fetchedUrl = '';
+    const fetcher: AttachmentFetcher = async (url) => {
+      fetchedUrl = url;
+      return { bytes: bytesFor('PNG'), contentType: 'image/png' };
+    };
+    const body =
+      '![](/api/attachments.redirect?id=4741efca-a335-43a6-a657-66d29296e47a)';
+    const res = await processInboundAttachments({
+      vault,
+      outlineUrl: 'https://outline.example.com',
+      apiKey: 'k',
+      notePath: 'Notes/Doc.md',
+      body,
+      fetcher,
+    });
+    expect(res.downloaded).toBe(1);
+    // Relative URL was resolved against outlineUrl before fetching.
+    expect(fetchedUrl).toBe(
+      'https://outline.example.com/api/attachments.redirect?id=4741efca-a335-43a6-a657-66d29296e47a'
+    );
+    expect(res.body).not.toContain('/api/attachments.redirect');
+    expect(res.body).toMatch(
+      /!\[\]\(\.\.\/Extras\/Outline-Sync\/Attachments\/4741efca-[^)]+\.png\)/
+    );
+  });
+
+  test('strips title and translates =WxH size to Obsidian pipe syntax', async () => {
+    const vault = new MemoryVault();
+    const fetcher: AttachmentFetcher = async () => ({
+      bytes: bytesFor('PNG'),
+      contentType: 'image/png',
+    });
+    const body =
+      '![](/api/attachments.redirect?id=img-1 "right-50 =304x171")';
+    const res = await processInboundAttachments({
+      vault,
+      outlineUrl: 'https://outline.example.com',
+      apiKey: 'k',
+      notePath: 'Notes/Doc.md',
+      body,
+      fetcher,
+    });
+    expect(res.downloaded).toBe(1);
+    expect(res.body).not.toContain('right-50');
+    expect(res.body).not.toContain('"');
+    expect(res.body).toMatch(/!\[\|304x171\]\(/);
+  });
+
+  test('strips title with no size hint, leaves alt untouched', async () => {
+    const vault = new MemoryVault();
+    const fetcher: AttachmentFetcher = async () => ({
+      bytes: bytesFor('PNG'),
+      contentType: 'image/png',
+    });
+    const body =
+      '![diagram](/api/attachments.redirect?id=img-2 "just a caption")';
+    const res = await processInboundAttachments({
+      vault,
+      outlineUrl: 'https://outline.example.com',
+      apiKey: 'k',
+      notePath: 'Notes/Doc.md',
+      body,
+      fetcher,
+    });
+    expect(res.downloaded).toBe(1);
+    expect(res.body).not.toContain('just a caption');
+    expect(res.body).toMatch(/!\[diagram\]\(/);
+  });
+
+  test('honors a custom attachmentsPath and computes path relative to the note', async () => {
+    const vault = new MemoryVault();
+    const fetcher: AttachmentFetcher = async () => ({
+      bytes: bytesFor('PNG'),
+      contentType: 'image/png',
+    });
+    const body = '![](https://o.example/api/attachments.redirect?id=deep)';
+    const res = await processInboundAttachments({
+      vault,
+      outlineUrl: 'https://o.example',
+      apiKey: 'k',
+      notePath: 'Work/Subfolder/Doc.md',
+      body,
+      fetcher,
+      attachmentsPath: 'Assets/Images',
+    });
+    expect(res.downloaded).toBe(1);
+    // Doc at Work/Subfolder/Doc.md → ../../Assets/Images/
+    expect(res.body).toContain('../../Assets/Images/');
+    expect(vault.list().some((p) => p.startsWith('Assets/Images/'))).toBe(true);
+  });
+
+  test('note at the vault root produces a relative ref without ../', async () => {
+    const vault = new MemoryVault();
+    const fetcher: AttachmentFetcher = async () => ({
+      bytes: bytesFor('PNG'),
+      contentType: 'image/png',
+    });
+    const body = '![](/api/attachments.redirect?id=root)';
+    const res = await processInboundAttachments({
+      vault,
+      outlineUrl: 'https://o.example',
+      apiKey: 'k',
+      notePath: 'Doc.md',
+      body,
+      fetcher,
+    });
+    expect(res.downloaded).toBe(1);
+    expect(res.body).toMatch(/!\[\]\(Extras\/Outline-Sync\/Attachments\//);
+    expect(res.body).not.toContain('../');
   });
 
   test('ignores URLs that are not Outline-hosted attachments', async () => {
@@ -214,7 +330,7 @@ describe('processInboundAttachments', () => {
     });
     expect(calls).toBe(1);
     expect(res.downloaded).toBe(2);
-    expect(res.body.match(/attachments\//g)?.length).toBe(2);
+    expect(res.body.match(/Extras\/Outline-Sync\/Attachments\//g)?.length).toBe(2);
   });
 
   test('leaves body untouched when no fetcher is provided', async () => {
