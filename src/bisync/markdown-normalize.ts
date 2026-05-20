@@ -1,10 +1,12 @@
 /**
  * Collapse runs of 3+ newlines to exactly two (one blank line between
- * blocks), preserving content inside fenced code blocks verbatim.
+ * blocks), preserving content inside fenced code blocks verbatim. A line
+ * containing nothing but a backslash is treated as blank — Outline's
+ * ProseMirror-based serializer emits empty paragraphs that way, and they
+ * otherwise render in Obsidian as a literal `\`.
  *
- * Outline's markdown serializer emits multiple blank lines between top-level
- * blocks. Markdown's paragraph separator is exactly one blank line, so the
- * extra blanks render in Obsidian as visible empty paragraphs.
+ * Lines that *end* with a backslash but have other content (`foo\`) are a
+ * markdown hard line break and are left alone.
  *
  * Safe with invariant 1 (hashes are over disk content): normalization runs
  * before the synced-hash is computed, so re-reads produce the same hash.
@@ -39,7 +41,7 @@ export function normalizeBlankLines(body: string): string {
       continue;
     }
 
-    if (trimmed === '') {
+    if (trimmed === '' || trimmed === '\\') {
       blankRun++;
       if (blankRun <= 1) out.push('');
     } else {

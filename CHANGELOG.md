@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] – 2026-05-20
+
+### Fixed
+
+- **Lone-backslash lines from Outline's empty paragraphs were rendering
+  as literal `\` in the vault.** Outline's ProseMirror-based markdown
+  serializer emits empty paragraphs as a single backslash on its own
+  line. The pull-side blank-line normalizer now treats those as blanks
+  and collapses them along with the surrounding whitespace. Content-line
+  hard breaks (`foo\`) and lone backslashes inside fenced code blocks
+  are preserved.
+
 ## [2.2.0] – 2026-05-20
 
 ### Fixed

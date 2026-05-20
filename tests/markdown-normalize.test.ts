@@ -52,4 +52,24 @@ describe('normalizeBlankLines', () => {
   test('empty string round-trips', () => {
     expect(normalizeBlankLines('')).toBe('');
   });
+
+  test('treats lone-backslash lines as blank (Outline empty paragraphs)', () => {
+    const input = ['# Purpose', '', 'body text', '', '\\', '# Style'].join('\n');
+    const expected = ['# Purpose', '', 'body text', '', '# Style'].join('\n');
+    expect(normalizeBlankLines(input)).toBe(expected);
+  });
+
+  test('lone backslash with surrounding whitespace is still treated as blank', () => {
+    expect(normalizeBlankLines('a\n  \\  \nb')).toBe('a\n\nb');
+  });
+
+  test('preserves content-line hard breaks (foo\\)', () => {
+    const input = 'line one\\\nline two';
+    expect(normalizeBlankLines(input)).toBe(input);
+  });
+
+  test('preserves lone backslash inside fenced code blocks', () => {
+    const input = ['```', 'a', '\\', 'b', '```'].join('\n');
+    expect(normalizeBlankLines(input)).toBe(input);
+  });
 });
