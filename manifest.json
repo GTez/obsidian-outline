@@ -1,7 +1,7 @@
 {
   "id": "obsidian-outline-sync",
   "name": "Outline Sync",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "minAppVersion": "1.0.0",
   "description": "Bidirectional sync between Obsidian and Outline. Map subtrees to folders; conflicts surface as side-by-side files.",
   "author": "Jesse Houston",

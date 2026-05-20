@@ -1,10 +1,7 @@
-import { Menu, Notice, Plugin, TFile, TFolder } from 'obsidian';
+import { Menu, Notice, Plugin, TFile } from 'obsidian';
 import { OutlineClient } from '../outline-client';
-import type { Collection } from '../outline-client';
-import { PushEngine } from '../push-engine';
 import { DEFAULT_SETTINGS, OutlineSyncSettings } from '../settings';
 import { OutlineSyncSettingTab } from './setting-tab';
-import { pickCollection } from './collection-picker-modal';
 import { BisyncEngine } from '../bisync/engine';
 import { ObsidianVaultIO } from '../bisync/obsidian-vault-io';
 import { ObsidianIndexStorage } from '../bisync/index-storage';
@@ -16,9 +13,7 @@ import { getOutlineMeta } from '../pipeline';
 export default class OutlineSyncPlugin extends Plugin {
   settings: OutlineSyncSettings = DEFAULT_SETTINGS;
   client!: OutlineClient;
-  cachedCollections: Collection[] = [];
   engine!: BisyncEngine;
-  private pushEngine!: PushEngine;
   private statusBarEl: HTMLElement | null = null;
   private intervalHandle: number | null = null;
   private saveDebounceTimers: Map<string, number> = new Map();
@@ -36,10 +31,6 @@ export default class OutlineSyncPlugin extends Plugin {
       this.statusBarEl = null;
     }
     this.setStatus('idle');
-
-    if (this.settings.outlineUrl && this.settings.apiKey) {
-      void this.refreshCollections();
-    }
 
     if (this.settings.syncOnStartup) {
       this.app.workspace.onLayoutReady(() => {
@@ -145,29 +136,6 @@ export default class OutlineSyncPlugin extends Plugin {
       },
     });
 
-    // Upstream push commands — preserved for users who liked v1.
-    this.addCommand({
-      id: 'push-to-outline',
-      name: 'Push active file to Outline (one-way)',
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== 'md') return false;
-        if (!checking) void this.pushFileWithPicker(file);
-        return true;
-      },
-    });
-    this.addCommand({
-      id: 'push-folder-to-outline',
-      name: 'Push folder to Outline (one-way)',
-      callback: () => {
-        const file = this.app.workspace.getActiveFile();
-        if (!file) return;
-        const folder = file.parent;
-        if (folder instanceof TFolder) {
-          void this.pushFolderWithPicker(folder);
-        }
-      },
-    });
   }
 
   private registerFileMenu(): void {
@@ -179,20 +147,6 @@ export default class OutlineSyncPlugin extends Plugin {
               .setTitle('Outline: sync this note')
               .setIcon('refresh-cw')
               .onClick(() => void this.syncFile(abstractFile));
-          });
-          menu.addItem((item) => {
-            item
-              .setTitle('Outline: push (one-way, legacy)')
-              .setIcon('upload')
-              .onClick(() => void this.pushFileWithPicker(abstractFile));
-          });
-        }
-        if (abstractFile instanceof TFolder) {
-          menu.addItem((item) => {
-            item
-              .setTitle('Outline: push folder (one-way, legacy)')
-              .setIcon('folder-up')
-              .onClick(() => void this.pushFolderWithPicker(abstractFile));
           });
         }
       })
@@ -321,35 +275,6 @@ export default class OutlineSyncPlugin extends Plugin {
     new Notice(`Outline Sync:\n${lines.join('\n')}`, 10_000);
   }
 
-  // ─── Legacy push side ─────────────────────────────────────────────────
-
-  async pushFileWithPicker(file: TFile): Promise<void> {
-    const collectionId = await this.resolveCollectionId();
-    if (!collectionId) return;
-    void this.pushEngine.pushFile(file, collectionId);
-  }
-
-  async pushFolderWithPicker(folder: TFolder): Promise<void> {
-    const collectionId = await this.resolveCollectionId();
-    if (!collectionId) return;
-    void this.pushEngine.pushFolder(folder, collectionId);
-  }
-
-  private async resolveCollectionId(): Promise<string | null> {
-    if (this.settings.targetCollectionId) return this.settings.targetCollectionId;
-    if (this.cachedCollections.length === 0) await this.refreshCollections();
-    if (this.cachedCollections.length === 0) {
-      new Notice('Outline Sync: No collections available. Check URL and API key.');
-      return null;
-    }
-    return pickCollection(this.app, this.cachedCollections, '');
-  }
-
-  async refreshCollections(): Promise<void> {
-    const collections = await this.client.listCollections();
-    this.cachedCollections = collections ?? [];
-  }
-
   // ─── Plumbing ─────────────────────────────────────────────────────────
 
   async loadSettings(): Promise<void> {
@@ -374,7 +299,6 @@ export default class OutlineSyncPlugin extends Plugin {
       apiKey: this.settings.apiKey,
       rateLimiter: limiter,
     });
-    this.pushEngine = new PushEngine(this.app, this.client, this.settings);
     this.engine = new BisyncEngine({
       api: this.client,
       vault: new ObsidianVaultIO(this.app),

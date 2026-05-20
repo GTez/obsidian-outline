@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] – 2026-05-20
+
+### Removed
+
+- **Legacy v1 one-way push surface.** The "Push active file to Outline
+  (legacy)" and "Push folder to Outline (legacy)" commands are gone, as
+  is the matching right-click menu items, the "Manual push (legacy)"
+  section in the settings tab, and the v1 push engine itself
+  (`src/push-engine.ts`, `src/convert/`, `src/sync/`, the collection
+  picker modal, the dead obsidian adapter). The legacy settings
+  (`targetCollectionId`, `targetCollectionName`, `removeToc`) have been
+  dropped — they'll be silently ignored if present in existing
+  configurations.
+
+If you still depend on the one-way push flow, pin to ≤ 2.2.x.
+
 ## [2.2.1] – 2026-05-20
 
 ### Fixed

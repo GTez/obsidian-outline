@@ -1,11 +1,5 @@
 /**
- * Plugin settings.
- *
- * The original (v1) settings drove a one-way push from Obsidian → Outline. v2
- * adds bidirectional sync via {@link SyncMapping} entries. We keep the legacy
- * fields (`targetCollectionId`, `targetCollectionName`, `removeToc`) so older
- * configurations and the existing push commands keep working during the
- * transition.
+ * Plugin settings. Bidirectional sync is driven by {@link SyncMapping} entries.
  */
 
 export type ConflictBehavior = 'create-conflict-file' | 'prefer-local' | 'prefer-remote';
@@ -37,14 +31,6 @@ export interface OutlineSyncSettings {
   // ─── Connection ──────────────────────────────────────────────────────────
   outlineUrl: string;
   apiKey: string;
-
-  // ─── Legacy push-only settings (kept so v1 users don't lose state) ───────
-  /** @deprecated Use mappings instead. Retained to keep the push commands working. */
-  targetCollectionId: string;
-  /** @deprecated */
-  targetCollectionName: string;
-  /** Applied to push side; pull side leaves Outline's markdown alone. */
-  removeToc: boolean;
 
   // ─── Bidirectional sync ──────────────────────────────────────────────────
   mappings: SyncMapping[];
@@ -82,9 +68,6 @@ export interface OutlineSyncSettings {
 export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   outlineUrl: '',
   apiKey: '',
-  targetCollectionId: '',
-  targetCollectionName: '',
-  removeToc: false,
   mappings: [],
   syncOnStartup: true,
   syncOnFileOpen: false,

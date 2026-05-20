@@ -13,10 +13,10 @@ src/
   plugin-ui/         Obsidian-specific UI: main.ts (Plugin entry), settings tab, modals
   bisync/            The bidirectional sync engine. Talks to VaultIO + IOutlineApi.
   outline-api/       Typed API client + rate limiter. The generated client lives here.
-  pipeline/          The push-only conversion pipeline (callouts, wikilinks, images, etc.)
-                     Reused by v2's reconciler for image detection on push.
-  convert/, sync/,   Legacy v1 push-only path. Still wired up for the "Push to Outline"
-  push-engine.ts     commands. New code should not depend on these.
+  pipeline/          Markdown transformers (frontmatter parser, image detector,
+                     callouts, wikilinks). v2 only uses the image detector and
+                     frontmatter utilities; the rest are kept as a small library
+                     in case future v2 push needs them.
 tests/               Jest suite. helpers/ has MemoryVault + FakeApi.
 ```
 

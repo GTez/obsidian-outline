@@ -4,7 +4,7 @@ Bidirectional sync between [Obsidian](https://obsidian.md) and a self-hosted or 
 
 Map an Outline document or collection subtree to a vault folder. Edits flow in both directions. Conflicts surface as side-by-side files, not silent overwrites. Works on desktop **and** mobile.
 
-> v2.0.0 — Major rewrite from the original push-only plugin. The legacy push commands ("Push to Outline") are still available; the new bidirectional sync lives behind separate commands and a configurable list of **sync mappings**.
+> v2.3.0 removes the legacy v1 one-way push commands. If you still need them, pin to ≤ 2.2.x.
 
 ## Features
 
@@ -78,8 +78,6 @@ Click **Sync all mappings** from the Command Palette, or use the per-mapping **S
 | `Outline Sync: Force push`             | Overwrite the remote with the local body. Bypasses change detection.      |
 | `Outline Sync: Rebuild local index`    | Re-derive the sync index from frontmatter.                                |
 | `Outline Sync: Open in Outline`        | Open the active file's Outline page in a browser.                         |
-| `Push active file to Outline (legacy)` | One-way push, preserved from v1.                                          |
-| `Push folder to Outline (legacy)`      | One-way folder push, preserved from v1.                                   |
 
 ## How sync tracking works
 

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-outline-sync",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Bidirectional sync between Obsidian and Outline (self-hosted or cloud). Folder-note hierarchy, conflict-safe, mobile-compatible.",
   "main": "main.js",
   "scripts": {

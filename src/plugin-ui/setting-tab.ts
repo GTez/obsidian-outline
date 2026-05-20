@@ -1,12 +1,10 @@
-import { App, DropdownComponent, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type OutlineSyncPlugin from './main';
-import type { Collection } from '../outline-client';
 import type { ConflictBehavior, SyncMapping } from '../settings';
 import { MappingModal } from './mapping-modal';
 
 export class OutlineSyncSettingTab extends PluginSettingTab {
   plugin: OutlineSyncPlugin;
-  private collectionDropdown: DropdownComponent | null = null;
 
   constructor(app: App, plugin: OutlineSyncPlugin) {
     super(app, plugin);
@@ -20,7 +18,6 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
     this.renderSecurityWarning(containerEl);
     this.renderConnectionSection(containerEl);
     this.renderMappingsSection(containerEl);
-    this.renderLegacyPushSection(containerEl);
     this.renderSyncBehaviorSection(containerEl);
     this.renderAdvancedSection(containerEl);
   }
@@ -81,7 +78,6 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
             btn.setDisabled(false);
             if (name) {
               btn.setButtonText(`✓ ${name}`);
-              await this.plugin.refreshCollections();
             } else {
               btn.setButtonText('✗ Failed');
               new Notice('Connection failed. Check URL and API key.');
@@ -164,56 +160,6 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
         this.display();
       })
     );
-  }
-
-  private renderLegacyPushSection(parent: HTMLElement): void {
-    parent.createEl('h3', { text: 'Manual push (legacy)' });
-    parent.createEl('p', {
-      cls: 'setting-item-description',
-      text:
-        'The original one-way push commands still work. Pick a default collection for "Push to Outline".',
-    });
-
-    new Setting(parent)
-      .setName('Default collection')
-      .addDropdown((dropdown) => {
-        this.collectionDropdown = dropdown;
-        dropdown.addOption('', '— Test connection first —');
-        if (this.plugin.settings.targetCollectionId) {
-          dropdown.addOption(
-            this.plugin.settings.targetCollectionId,
-            this.plugin.settings.targetCollectionName
-          );
-          dropdown.setValue(this.plugin.settings.targetCollectionId);
-        }
-        const collections = this.plugin.cachedCollections;
-        if (collections.length > 0) {
-          dropdown.selectEl.empty();
-          dropdown.addOption('', '— Select collection —');
-          for (const c of collections) {
-            dropdown.addOption(c.id ?? '', c.name ?? '');
-          }
-          if (this.plugin.settings.targetCollectionId) {
-            dropdown.setValue(this.plugin.settings.targetCollectionId);
-          }
-        }
-        dropdown.onChange(async (value) => {
-          const found = collections.find((c: Collection) => c.id === value);
-          this.plugin.settings.targetCollectionId = value;
-          this.plugin.settings.targetCollectionName = found?.name ?? '';
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(parent)
-      .setName('Remove table of contents on push')
-      .setDesc('Strip TOC blocks before pushing to Outline.')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.removeToc).onChange(async (value) => {
-          this.plugin.settings.removeToc = value;
-          await this.plugin.saveSettings();
-        })
-      );
   }
 
   private renderSyncBehaviorSection(parent: HTMLElement): void {
